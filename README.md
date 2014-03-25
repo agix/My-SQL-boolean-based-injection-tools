@@ -1,3 +1,4 @@
+```
 Usage: mysql-truefalse.py [options]
 
 Options:
@@ -28,3 +29,4 @@ Options:
   -m MODIFICATION, --Modif=MODIFICATION
                         Specify tricks to bypass filter (type -m list to list
                         the tricks)
+```
